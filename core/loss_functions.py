@@ -320,7 +320,6 @@ class TargetNetworkManager:
 
 # # testing
 # if __name__ == "__main__":
-#     print("🚀 Testing Proper Loss Function Implementations")
     
 #     # Initialize loss functions
 #     loss_functions = LossFunctions(gamma=0.99, device="cpu")
