@@ -50,21 +50,21 @@ class LossFunctions:
         """
         batch_size, num_quantiles = predicted_quantiles.shape
         
-        # Ensure quantile_fractions has correct shape [1, num_quantiles]
+        # ensure quantile_fractions has correct shape [1, num_quantiles]
         if quantile_fractions.dim() == 1:
             quantile_fractions = quantile_fractions.unsqueeze(0)
         
-        # Compute residuals: u = target - prediction
+        # compute residuals: u = target - prediction
         residuals = target_values - predicted_quantiles  # [batch_size, num_quantiles]
         
-        # Indicator function: I_{u < 0}
+        # indicator function: I_{u < 0}
         indicator = (residuals < 0).float()  # [batch_size, num_quantiles]
         
-        # Quantile weights: (τ - I_{u < 0})
+        # quantile weights: (τ - I_{u < 0})
         quantile_weights = quantile_fractions - indicator  # [batch_size, num_quantiles]
         
         if use_huber:
-            # Huber loss for numerical stability
+            # huber loss for numerical stability
             huber_loss = torch.where(
                 torch.abs(residuals) <= huber_delta,
                 0.5 * residuals.pow(2),
@@ -109,35 +109,35 @@ class LossFunctions:
         batch_size = states.shape[0]
         num_quantiles = len(quantile_fractions)
         
-        # Current quantile predictions: Z_τ(s,a)
+        # current quantile predictions: Z_τ(s,a)
         current_quantiles = qrdqn_network(states)  # [batch_size, num_actions, num_quantiles]
         
-        # Select quantiles for taken actions
+        # select quantiles for taken actions
         current_quantiles = current_quantiles.gather(
             1, actions.unsqueeze(1).unsqueeze(2).expand(-1, 1, num_quantiles)
         ).squeeze(1)  # [batch_size, num_quantiles]
         
-        # Compute Bellman targets: r + γ max_a' Q_θ-(s',a')
+        # compute Bellman targets: r + γ max_a' Q_θ-(s',a')
         with torch.no_grad():
-            # Get next state quantiles from target network
+            # get next state quantiles from target network
             next_quantiles = target_network(next_states)  # [batch_size, num_actions, num_quantiles]
             
-            # Compute Q-values as mean of quantiles for action selection
+            # compute Q-values as mean of quantiles for action selection
             next_q_values = next_quantiles.mean(dim=2)  # [batch_size, num_actions]
             
-            # Select best actions: max_a' Q_θ-(s',a')
+            # select best actions: max_a' Q_θ-(s',a')
             next_actions = next_q_values.argmax(dim=1)  # [batch_size]
             
-            # Get quantiles for best actions
+            # get quantiles for best actions
             next_quantiles_selected = next_quantiles.gather(
                 1, next_actions.unsqueeze(1).unsqueeze(2).expand(-1, 1, num_quantiles)
             ).squeeze(1)  # [batch_size, num_quantiles]
             
-            # Bellman targets: r + γ * (1 - done) * max_a' Q_θ-(s',a')
+            # bellman targets: r + γ * (1 - done) * max_a' Q_θ-(s',a')
             targets = rewards.unsqueeze(1) + self.gamma * (1 - dones.unsqueeze(1)) * next_quantiles_selected
             # [batch_size, num_quantiles]
         
-        # Compute quantile regression loss
+        # compute quantile regression loss
         loss = self.quantile_regression_loss_exact(
             predicted_quantiles=current_quantiles,
             target_values=targets,
@@ -175,23 +175,23 @@ class LossFunctions:
         ensemble_losses = []
         
         for k in range(K):
-            # Current Q-values: Q_θk(s,a)
+            # current Q-values: Q_θk(s,a)
             current_q_values = ensemble_networks[k](states)  # [batch_size, num_actions]
             current_q_selected = current_q_values.gather(1, actions.unsqueeze(1)).squeeze(1)  # [batch_size]
             
-            # Compute Bellman targets: r + γ max_a' Q_θk-(s',a')
+            # compute Bellman targets: r + γ max_a' Q_θk-(s',a')
             with torch.no_grad():
                 next_q_values = target_networks[k](next_states)  # [batch_size, num_actions]
                 next_q_max = next_q_values.max(dim=1)[0]  # [batch_size]
                 
-                # Bellman targets: r + γ * (1 - done) * max_a' Q_θk-(s',a')
+                # bellman targets: r + γ * (1 - done) * max_a' Q_θk-(s',a')
                 targets = rewards + self.gamma * (1 - dones) * next_q_max  # [batch_size]
             
             # MSE loss for this ensemble member
             member_loss = F.mse_loss(current_q_selected, targets)
             ensemble_losses.append(member_loss)
         
-        # Average over all ensemble members: (1/K) Σ_k
+        # average over all ensemble members: (1/K) Σ_k
         ensemble_loss = torch.stack(ensemble_losses).mean()
         
         return ensemble_loss
@@ -226,14 +226,14 @@ class LossFunctions:
         Returns:
             True if all tests pass
         """
-        print("🔍 Validating loss function implementations...")
+        print(" Validating loss function implementations...")
         
         try:
-            # Create dummy data
+            # create dummy data
             batch_size, num_quantiles, num_actions = 32, 21, 4
             state_dim = 10
             
-            # Dummy tensors
+            # dummy tensors
             states = torch.randn(batch_size, state_dim)
             actions = torch.randint(0, num_actions, (batch_size,))
             rewards = torch.randn(batch_size)
@@ -241,7 +241,7 @@ class LossFunctions:
             dones = torch.randint(0, 2, (batch_size,)).float()
             quantile_fractions = torch.linspace(0.05, 0.95, num_quantiles)
             
-            # Test quantile regression loss
+            # test quantile regression loss
             predicted_quantiles = torch.randn(batch_size, num_quantiles)
             target_values = torch.randn(batch_size, num_quantiles)
             
@@ -254,7 +254,7 @@ class LossFunctions:
             
             print(" Quantile regression loss validation passed")
             
-            # Test with dummy networks (simplified validation)
+            # test with dummy networks (simplified validation)
             predicted_quantiles_2 = torch.randn(batch_size, num_quantiles, requires_grad=True)
             target_values_2 = torch.randn(batch_size, num_quantiles)
             
@@ -262,7 +262,7 @@ class LossFunctions:
                 predicted_quantiles_2, target_values_2, quantile_fractions
             )
             
-            # Test gradient flow
+            # test gradient flow
             loss_2.backward()
             assert predicted_quantiles_2.grad is not None, "Gradients should flow through loss"
             
@@ -316,7 +316,7 @@ class TargetNetworkManager:
         if self.step_count % self.update_frequency == 0:
             for target_net, source_net in zip(target_networks, source_networks):
                 self.hard_update(target_net, source_net)
-            print(f"🔄 Target networks updated at step {self.step_count}")
+            print(f" Target networks updated at step {self.step_count}")
 
 # # testing
 # if __name__ == "__main__":

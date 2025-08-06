@@ -63,20 +63,20 @@ class CorrelationAnalyzer:
             if len(x) != len(y) or len(x) < 2:
                 return 0.0
                 
-            # Remove any infinite or NaN values
+            # remove any infinite or NaN values
             mask = np.isfinite(x) & np.isfinite(y)
             x, y = x[mask], y[mask]
             
             if len(x) < 2:
                 return 0.0
             
-            # Compute distance matrices and apply double centering
+            # compute distance matrices and apply double centering
             A = _distance_matrix(x)
             B = _distance_matrix(y)
             A_centered = _doubly_centered_matrix(A)
             B_centered = _doubly_centered_matrix(B)
             
-            # Compute distance correlation
+            # compute distance correlation
             n = len(x)
             dcov_xy = np.sqrt(np.sum(A_centered * B_centered) / (n * n))
             dcov_xx = np.sqrt(np.sum(A_centered * A_centered) / (n * n))
@@ -111,17 +111,17 @@ class CorrelationAnalyzer:
             if len(x) != len(y) or len(x) < 2:
                 return 0.0
             
-            # Remove infinite and NaN values
+            # remove infinite and NaN values
             mask = np.isfinite(x) & np.isfinite(y)
             x, y = x[mask], y[mask]
             
             if len(x) < 2:
                 return 0.0
             
-            # Use sklearn's mutual_info_regression for robust estimation
+            # use sklearn's mutual_info_regression for robust estimation
             mi = mutual_info_regression(x.reshape(-1, 1), y, discrete_features=False)[0]
             
-            # Compute marginal entropies for normalization
+            # compute marginal entropies for normalization
             def entropy(data, bins):
                 hist, _ = np.histogram(data, bins=bins, density=True)
                 hist = hist[hist > 0]
@@ -130,7 +130,7 @@ class CorrelationAnalyzer:
             h_x = entropy(x, bins)
             h_y = entropy(y, bins)
             
-            # Normalized mutual information
+            # NMI
             if h_x > 0 and h_y > 0:
                 nmi = mi / np.sqrt(h_x * h_y)
                 return min(max(nmi, 0.0), 1.0)
@@ -162,23 +162,23 @@ class CorrelationAnalyzer:
             if len(x) != len(y) or len(x) < 2:
                 return 0.0
             
-            # Remove infinite and NaN values
+            # remove infinite and NaN values
             mask = np.isfinite(x) & np.isfinite(y)
             x, y = x[mask], y[mask]
             
             if len(x) < 2:
                 return 0.0
             
-            # Standardize the data
+            # standardize the data
             xy_data = np.column_stack([x, y])
             xy_scaled = self.scaler.fit_transform(xy_data)
             
-            # Automatic bandwidth selection using Scott's rule
+            # automatic bandwidth selection using Scott's rule
             if bandwidth is None:
                 n, d = xy_scaled.shape
                 bandwidth = n ** (-1. / (d + 4))
             
-            # Fit KDE and estimate entropy
+            # fit KDE and estimate entropy
             kde = KernelDensity(bandwidth=bandwidth, kernel='gaussian')
             kde.fit(xy_scaled)
             
@@ -256,15 +256,13 @@ class CorrelationAnalyzer:
             Dictionary containing all correlation metrics and joint entropy
         """
         try:
-            # Basic correlation measures
             pearson_r, pearson_p = pearsonr(epistemic, aleatoric)
             spearman_r, spearman_p = spearmanr(epistemic, aleatoric)
             
-            # Advanced measures
             dcor = self.distance_correlation(epistemic, aleatoric)
             nmi = self.normalized_mutual_information(epistemic, aleatoric)
             
-            # Joint entropy and mutual information
+            # joint entropy and mutual information
             joint_entropy = self.compute_joint_entropy_kde(epistemic, aleatoric)
             mutual_info = self.compute_mutual_information_kde(epistemic, aleatoric)
             
@@ -339,7 +337,7 @@ class UncertaintyCombiner:
     
     def method3_dcor_entropy_correction(self, epistemic: np.ndarray, aleatoric: np.ndarray) -> np.ndarray:
         """
-        Distance Correlation with Entropy Correction (Equation 310):
+        Distance Correlation with Entropy Correction:
         u_dCor(s) = √(max(0, u_e²(s) + u_a²(s) - ρ_dCor · H_joint(s)))
         """
         rho_dcor = self.correlation_analyzer.distance_correlation(epistemic, aleatoric)
@@ -352,7 +350,7 @@ class UncertaintyCombiner:
     
     def method4_nmi_entropy_correction(self, epistemic: np.ndarray, aleatoric: np.ndarray) -> np.ndarray:
         """
-        NMI with Entropy Correction (Equation 316):
+        NMI with Entropy Correction:
         u_NMI(s) = √(max(0, u_e²(s) + u_a²(s) - ρ_NMI · H_joint(s)))
         """
         rho_nmi = self.correlation_analyzer.normalized_mutual_information(epistemic, aleatoric)
@@ -365,7 +363,7 @@ class UncertaintyCombiner:
     
     def method5_upper_bound_dcor(self, epistemic: np.ndarray, aleatoric: np.ndarray) -> np.ndarray:
         """
-        Upper Bound (dCor) (Equation 334):
+        Upper Bound (dCor):
         U_upper_dCor = (1-ρ_dCor)√(U_e² + U_a²) + ρ_dCor·max(U_e, U_a)
         """
         rho_dcor = self.correlation_analyzer.distance_correlation(epistemic, aleatoric)
@@ -377,7 +375,7 @@ class UncertaintyCombiner:
     
     def method6_upper_bound_nmi(self, epistemic: np.ndarray, aleatoric: np.ndarray) -> np.ndarray:
         """
-        Upper Bound (NMI) (Equation 338):
+        Upper Bound (NMI):
         U_upper_NMI = (1-ρ_NMI)√(U_e² + U_a²) + ρ_NMI·max(U_e, U_a)
         """
         rho_nmi = self.correlation_analyzer.normalized_mutual_information(epistemic, aleatoric)
@@ -399,11 +397,11 @@ class UncertaintyCombiner:
             Dictionary with all 6 combination methods
         """
         try:
-            # Convert to numpy arrays and ensure finite values
+            # convert to numpy arrays and ensure finite values
             epistemic = np.asarray(epistemic).flatten()
             aleatoric = np.asarray(aleatoric).flatten()
             
-            # Remove infinite and NaN values
+            # remove infinite and NaN values
             mask = np.isfinite(epistemic) & np.isfinite(aleatoric)
             epistemic = epistemic[mask]
             aleatoric = aleatoric[mask]
@@ -411,7 +409,7 @@ class UncertaintyCombiner:
             if len(epistemic) == 0:
                 return {f'method{i+1}': np.array([0.0]) for i in range(6)}
             
-            # Compute all methods
+            # compute all methods
             methods = {
                 'method1_linear_addition': self.method1_linear_addition(epistemic, aleatoric),
                 'method2_rss': self.method2_root_sum_squares(epistemic, aleatoric),
@@ -452,16 +450,13 @@ class ComprehensiveUncertaintyAnalysis:
         Returns:
             Comprehensive analysis results including correlations, combinations, and recommendations
         """
-        # Basic correlation analysis
+        # basic correlation analysis
         correlation_results = self.correlation_analyzer.analyze_all_correlations(epistemic, aleatoric)
-        
-        # Uncertainty combination methods
+        # uncertainty combination methods
         combination_results = self.uncertainty_combiner.compute_all_combinations(epistemic, aleatoric)
-        
-        # Method recommendation
+        # method recommendation
         recommendation = self._recommend_method(correlation_results)
-        
-        # Compile comprehensive results
+        # compile comprehensive results
         results = {
             'correlations': correlation_results,
             'combinations': combination_results,

@@ -217,7 +217,7 @@ class ConformalPredictor:
                                 recent_scores: List[float] = None,
                                 alpha: float = None) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Adaptive conformal prediction with sliding window (Equation 362).
+        Adaptive conformal prediction with sliding window.
         
         q̂_α^(t) = Quantile_{1-α}({s_i : i ∈ W_t})
         """
@@ -410,16 +410,16 @@ class ComprehensiveEvaluator:
         """
         results = {'method_name': method_name}
         
-        # Convert uncertainty to probabilities for calibration analysis
+        # convert uncertainty to probabilities for calibration analysis
         y_prob = 1 - stats.norm.cdf(np.abs(y_true - y_pred), scale=uncertainty)
         y_binary = (np.abs(y_true - y_pred) <= uncertainty).astype(int)
         
-        # Calibration analysis
+        # calibration analysis
         results['calibration'] = self.calibration_analyzer.comprehensive_calibration_analysis(
             y_binary, y_prob
         )
         
-        # Conformal prediction analysis
+        # conformal prediction analysis
         n_cal = len(y_true) // 2
         
         self.conformal_predictor.calibrate(y_true[:n_cal], y_pred[:n_cal])
@@ -429,7 +429,7 @@ class ComprehensiveEvaluator:
             y_true[n_cal:], lower_bounds, upper_bounds
         )
         
-        # Statistical testing
+        # statistical testing
         coverage_rate = results['conformal']['coverage_rate']
         target_coverage = 1 - self.conformal_predictor.alpha
         n_test_samples = len(y_true) - n_cal

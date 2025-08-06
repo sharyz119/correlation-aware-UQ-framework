@@ -55,17 +55,15 @@ class DiscreteQRDQN(BaseUncertaintyNetwork):
         self.num_actions = num_actions
         self.dropout_rate = dropout_rate
         self.ensemble_id = ensemble_id
-        
-        # Set default hidden dimensions if not provided
+
         if hidden_dims is None:
             hidden_dims = [128, 128]
         
-        # Build the network layers with ensemble diversity
         layers = []
         prev_dim = input_size
         
         for i, hidden_dim in enumerate(hidden_dims):
-            # Add architectural diversity for ensemble members
+            # add architectural diversity for ensemble members
             if ensemble_id > 0:
                 varied_hidden = hidden_dim + (ensemble_id - 1) * 16
                 varied_hidden = max(64, varied_hidden)
@@ -79,16 +77,15 @@ class DiscreteQRDQN(BaseUncertaintyNetwork):
             ])
             prev_dim = varied_hidden
         
-        # Output layer: for each action, output num_quantiles values
+        # output layer: for each action, output num_quantiles values
         layers.append(nn.Linear(prev_dim, num_actions * num_quantiles))
         
         self.network = nn.Sequential(*layers)
         
-        # Paper-specified quantile fractions: τ = {1/(2N+1), 3/(2N+1), ..., (2N+1)/(2N+1)}
         tau_values = [(2*i + 1)/(2*num_quantiles + 1) for i in range(num_quantiles)]
         self.register_buffer('quantile_fractions', torch.tensor(tau_values, dtype=torch.float32))
         
-        # Initialize weights with ensemble diversity
+        # initialize weights with ensemble diversity
         self._initialize_weights(seed=ensemble_id * 42)
     
     def _initialize_weights(self, seed: int = 42):
@@ -112,7 +109,7 @@ class DiscreteQRDQN(BaseUncertaintyNetwork):
         batch_size = x.size(0)
         output = self.network(x)  # [batch_size, num_actions * num_quantiles]
         
-        # Reshape to [batch_size, num_actions, num_quantiles]
+        # reshape to [batch_size, num_actions, num_quantiles]
         return output.view(batch_size, self.num_actions, self.num_quantiles)
     
     def get_q_values(self, x: torch.Tensor) -> torch.Tensor:
@@ -141,12 +138,12 @@ class DiscreteQRDQN(BaseUncertaintyNetwork):
         with torch.no_grad():
             quantiles = self.forward(x)  # [batch_size, num_actions, num_quantiles]
             
-            # Use interquartile range (IQR) as uncertainty measure
+            # use interquartile range (IQR) as uncertainty measure
             q75 = torch.quantile(quantiles, 0.75, dim=-1)  # [batch_size, num_actions]
             q25 = torch.quantile(quantiles, 0.25, dim=-1)  # [batch_size, num_actions]
             iqr = q75 - q25  # [batch_size, num_actions]
             
-            # Return mean IQR across actions
+            # return mean IQR across actions
             return iqr.mean(dim=-1)  # [batch_size]
     
     def get_uncertainty(self, x: torch.Tensor) -> torch.Tensor:
@@ -176,19 +173,19 @@ class ContinuousQRDQN(BaseUncertaintyNetwork):
         self.dropout_rate = dropout_rate
         self.ensemble_id = ensemble_id
         
-        # Total number of discrete actions (bins^action_dim)
+        # total number of discrete actions (bins^action_dim)
         self.total_discrete_actions = action_discretization_bins ** action_dim
         
-        # Set default hidden dimensions if not provided
+
         if hidden_dims is None:
             hidden_dims = [256, 256]
         
-        # Build the network layers with ensemble diversity
+        # build the network layers with ensemble diversity
         layers = []
         prev_dim = state_dim
         
         for i, hidden_dim in enumerate(hidden_dims):
-            # Add architectural diversity for ensemble members
+            # add architectural diversity for ensemble members
             if ensemble_id > 0:
                 varied_hidden = hidden_dim + (ensemble_id - 1) * 16
                 varied_hidden = max(64, varied_hidden)
@@ -206,12 +203,10 @@ class ContinuousQRDQN(BaseUncertaintyNetwork):
         layers.append(nn.Linear(prev_dim, self.total_discrete_actions * num_quantiles))
         
         self.network = nn.Sequential(*layers)
-        
-        # Paper-specified quantile fractions: τ = {1/(2N+1), 3/(2N+1), ..., (2N+1)/(2N+1)}
         tau_values = [(2*i + 1)/(2*num_quantiles + 1) for i in range(num_quantiles)]
         self.register_buffer('quantile_fractions', torch.tensor(tau_values, dtype=torch.float32))
         
-        # Initialize weights with ensemble diversity
+        # initialize weights with ensemble diversity
         self._initialize_weights(seed=ensemble_id * 42)
     
     def _initialize_weights(self, seed: int = 42):
@@ -262,12 +257,12 @@ class ContinuousQRDQN(BaseUncertaintyNetwork):
         with torch.no_grad():
             quantiles = self.forward(state)
             
-            # Use interquartile range as uncertainty measure
+            # use interquartile range as uncertainty measure
             q75 = torch.quantile(quantiles, 0.75, dim=-1)
             q25 = torch.quantile(quantiles, 0.25, dim=-1)
             iqr = q75 - q25
             
-            # Return mean IQR across all discrete actions
+            # return mean IQR across all discrete actions
             return iqr.mean(dim=-1)
     
     def get_uncertainty(self, state: torch.Tensor) -> torch.Tensor:
@@ -314,7 +309,7 @@ class QRDQNEnsemble(nn.Module):
         self.hidden_dims = hidden_dims or [128, 128]
         self.is_continuous = is_continuous
         
-        # Create ensemble of QR-DQN models
+        # create ensemble of QR-DQN models
         self.qrdqn_ensemble = nn.ModuleList()
         
         for i in range(ensemble_size):
@@ -394,7 +389,7 @@ class QRDQNEnsemble(nn.Module):
             Aleatoric uncertainty [batch_size]
         """
         with torch.no_grad():
-            # Get aleatoric uncertainty from each QR-DQN and average
+            # get aleatoric uncertainty from each QR-DQN and average
             aleatoric_uncertainties = []
             for qrdqn in self.qrdqn_ensemble:
                 aleatoric_uncertainties.append(qrdqn.get_aleatoric_uncertainty(x))
@@ -416,18 +411,18 @@ class QRDQNEnsemble(nn.Module):
             Epistemic uncertainty [batch_size]
         """
         with torch.no_grad():
-            # Get Q-values from each ensemble member
+            # get Q-values from each ensemble member
             q_values_list = []
             for qrdqn in self.qrdqn_ensemble:
                 q_values_list.append(qrdqn.get_q_values(x))
             
-            # Stack and compute variance across ensemble members
+            # stack and compute variance across ensemble members
             stacked_q_values = torch.stack(q_values_list, dim=0)  # [ensemble_size, batch_size, num_actions]
             
-            # Use variance across ensemble as epistemic uncertainty
+            # use variance across ensemble as epistemic uncertainty
             variance = torch.var(stacked_q_values, dim=0)  # [batch_size, num_actions]
             
-            # Return mean variance across actions
+            # return mean variance across actions
             return variance.mean(dim=-1)  # [batch_size]
     
     def get_uncertainty(self, x: torch.Tensor) -> torch.Tensor:
@@ -467,11 +462,11 @@ class QRDQNEnsemble(nn.Module):
             Dictionary with ensemble statistics
         """
         with torch.no_grad():
-            # Get outputs from all ensemble members
+            # get outputs from all ensemble members
             quantile_outputs = self.forward(x)
             q_values_list = [qrdqn.get_q_values(x) for qrdqn in self.qrdqn_ensemble]
             
-            # Stack for statistics
+            # stack for statistics
             stacked_quantiles = torch.stack(quantile_outputs, dim=0)  # [ensemble_size, batch_size, num_actions, num_quantiles]
             stacked_q_values = torch.stack(q_values_list, dim=0)  # [ensemble_size, batch_size, num_actions]
             
@@ -524,14 +519,14 @@ class ActionDiscretizer:
         Returns:
             Discrete action index
         """
-        # Clip actions to bounds
+        # clip actions to bounds
         clipped_action = np.clip(continuous_action, self.action_bounds[0], self.action_bounds[1])
         
-        # Find bin index for each dimension
+        # find bin index for each dimension
         bin_indices = np.digitize(clipped_action, self.bin_edges) - 1
         bin_indices = np.clip(bin_indices, 0, self.bins - 1)
         
-        # Convert multi-dimensional bin indices to single discrete action
+        # convert multi-dimensional bin indices to single discrete action
         discrete_action = 0
         for i, bin_idx in enumerate(bin_indices):
             discrete_action += bin_idx * (self.bins ** i)
@@ -570,7 +565,7 @@ class ActionDiscretizer:
         
         return continuous_action
 
-# Factory functions for easy model creation
+# factory functions for easy model creation
 def create_discrete_uncertainty_models(input_size: int, 
                                      num_actions: int,
                                      ensemble_size: int = 3,
@@ -592,7 +587,7 @@ def create_discrete_uncertainty_models(input_size: int,
     Returns:
         Tuple of (Single QR-DQN, QR-DQN Ensemble)
     """
-    # Single QR-DQN for aleatoric uncertainty
+    # single QR-DQN for aleatoric uncertainty
     single_qrdqn = DiscreteQRDQN(
         input_size=input_size,
         num_actions=num_actions,
@@ -636,7 +631,7 @@ def create_continuous_uncertainty_models(state_dim: int,
     Returns:
         Tuple of (Single QR-DQN, QR-DQN Ensemble, Action Discretizer)
     """
-    # Single QR-DQN for aleatoric uncertainty
+    # single QR-DQN for aleatoric uncertainty
     single_qrdqn = ContinuousQRDQN(
         state_dim=state_dim,
         action_dim=action_dim,
@@ -658,7 +653,7 @@ def create_continuous_uncertainty_models(state_dim: int,
         action_discretization_bins=action_discretization_bins
     )
     
-    # Action discretizer
+    # action discretizer
     action_discretizer = ActionDiscretizer(
         action_dim=action_dim,
         bins=action_discretization_bins

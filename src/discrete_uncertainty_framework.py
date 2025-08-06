@@ -42,155 +42,52 @@ import pandas as pd
 import h5py
 import pickle
 
-# Import Minari for real dataset loading
+
 try:
     import minari
     MINARI_AVAILABLE = True
-    print(" Minari imported successfully")
+    print("Minari imported successfully")
 except ImportError:
     MINARI_AVAILABLE = False
-    print(" Minari not available - install with: !pip install minari")
+    print("Minari not available - install with: !pip install minari")
 
-# Suppress warnings for cleaner output
 warnings.filterwarnings('ignore', category=UserWarning)
 warnings.filterwarnings('ignore', category=FutureWarning)
 
-# Import proper loss functions
-from loss_functions import LossFunctions, TargetNetworkManager
+from core.model import create_discrete_uncertainty_models, DiscreteQRDQN, QRDQNEnsemble
+from core.loss_functions import LossFunctions, TargetNetworkManager
 
 @dataclass
 class ConsistentDiscreteConfig:
     """Consistent configuration for discrete uncertainty experiments."""
-    # Training parameters - CONSISTENT WITH CONTINUOUS
+    # training parameters - CONSISTENT WITH CONTINUOUS
     num_epochs: int = 15
     batch_size: int = 128
     learning_rate: float = 1e-4
     max_samples: int = 10000
     
-    # Model parameters - CONSISTENT WITH CONTINUOUS
+    # model parameters - CONSISTENT WITH CONTINUOUS
     ensemble_size: int = 3
     num_quantiles: int = 21
     hidden_dims: List[int] = None  # Will be set to [128, 128]
     
-    # Analysis parameters - CONSISTENT WITH CONTINUOUS
+    # analysis parameters - CONSISTENT WITH CONTINUOUS
     correlation_threshold: float = 0.3
     nmi_cap: float = 0.8
     
-    # Environment parameters
+    # environment parameters
     atari_image_size: int = 84
     
-    # Output parameters
+    # output parameters
     results_dir: str = "/var/scratch/zwa212/UQ_discrete_consistent_results"
     save_plots: bool = True
     save_models: bool = False  # Consistent with continuous
     
-    # Device
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     
     def __post_init__(self):
         if self.hidden_dims is None:
-            self.hidden_dims = [128, 128]  # Consistent with continuous
-
-class DiscreteQRDQN(nn.Module):
-    """Quantile Regression DQN for discrete action spaces - CONSISTENT ARCHITECTURE."""
-    
-    def __init__(self, input_size: int, num_actions: int, num_quantiles: int = 21, hidden_dims: List[int] = None):
-        super().__init__()
-        self.input_size = input_size
-        self.num_actions = num_actions
-        self.num_quantiles = num_quantiles
-        
-        if hidden_dims is None:
-            hidden_dims = [128, 128]
-        
-        # Network architecture - CONSISTENT WITH CONTINUOUS
-        layers = []
-        prev_dim = input_size
-        
-        for hidden_dim in hidden_dims:
-            layers.extend([
-                nn.Linear(prev_dim, hidden_dim),
-                nn.ReLU(),
-                nn.Dropout(0.1)  # Consistent dropout rate
-            ])
-            prev_dim = hidden_dim
-        
-        # Output layer
-        layers.append(nn.Linear(prev_dim, num_actions * num_quantiles))
-        
-        self.network = nn.Sequential(*layers)
-        
-        # Quantile fractions - CONSISTENT WITH CONTINUOUS
-        self.register_buffer('quantile_fractions', 
-                           torch.linspace(0.1, 0.9, num_quantiles))
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass returning quantile values."""
-        batch_size = x.size(0)
-        output = self.network(x)
-        return output.view(batch_size, self.num_actions, self.num_quantiles)
-    
-    def get_aleatoric_uncertainty(self, x: torch.Tensor) -> torch.Tensor:
-        """Compute aleatoric uncertainty from quantile spread - CONSISTENT METHOD."""
-        with torch.no_grad():
-            quantiles = self.forward(x)
-            # Use interquartile range as uncertainty measure - CONSISTENT
-            q75 = torch.quantile(quantiles, 0.75, dim=-1)
-            q25 = torch.quantile(quantiles, 0.25, dim=-1)
-            uncertainty = q75 - q25
-            return uncertainty.mean(dim=-1)  # Average over actions
-
-class DiscreteEnsemble(nn.Module):
-    """Deep ensemble for epistemic uncertainty - CONSISTENT ARCHITECTURE."""
-    
-    def __init__(self, input_size: int, num_actions: int, ensemble_size: int = 3, hidden_dims: List[int] = None):
-        super().__init__()
-        self.ensemble_size = ensemble_size
-        self.num_actions = num_actions
-        
-        if hidden_dims is None:
-            hidden_dims = [128, 128]
-        
-        # Create ensemble members - CONSISTENT WITH CONTINUOUS
-        self.ensemble = nn.ModuleList()
-        for i in range(ensemble_size):
-            layers = []
-            prev_dim = input_size
-            
-            for j, hidden_dim in enumerate(hidden_dims):
-                # Slight architectural diversity for ensemble members
-                current_hidden = hidden_dim + (i - 1) * 16  # Small variation
-                current_hidden = max(64, current_hidden)
-                
-                layers.extend([
-                    nn.Linear(prev_dim, current_hidden),
-                    nn.ReLU(),
-                    nn.Dropout(0.1 + i * 0.01)  # Slight dropout variation
-                ])
-                prev_dim = current_hidden
-            
-            # Output layer
-            layers.append(nn.Linear(prev_dim, num_actions))
-            
-            member = nn.Sequential(*layers)
-            self.ensemble.append(member)
-    
-    def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
-        """Forward pass through all ensemble members."""
-        outputs = []
-        for member in self.ensemble:
-            outputs.append(member(x))
-        return outputs
-    
-    def get_epistemic_uncertainty(self, x: torch.Tensor) -> torch.Tensor:
-        """Compute epistemic uncertainty from ensemble disagreement - CONSISTENT METHOD."""
-        with torch.no_grad():
-            outputs = self.forward(x)
-            stacked = torch.stack(outputs, dim=0)  # [ensemble_size, batch_size, num_actions]
-            
-            # Use variance across ensemble as epistemic uncertainty
-            uncertainty = torch.var(stacked, dim=0)  # [batch_size, num_actions]
-            return uncertainty.mean(dim=-1)  # Average over actions
+            self.hidden_dims = [128, 128]  # consistent with continuous
 
 class ConsistentDiscreteUncertaintyFramework:
     """Main framework for discrete uncertainty correlation analysis - CONSISTENT VERSION."""
@@ -199,13 +96,13 @@ class ConsistentDiscreteUncertaintyFramework:
         self.config = config
         self.device = torch.device(config.device)
         
-        # Create results directory
+        # create results directory
         Path(config.results_dir).mkdir(parents=True, exist_ok=True)
         
-        # Initialize data storage - CONSISTENT WITH CONTINUOUS
+        # initialize data storage - CONSISTENT WITH CONTINUOUS
         self.reset_storage()
         
-        print(f"🎮 Consistent Discrete Uncertainty Framework initialized")
+        print(f"Consistent Discrete Uncertainty Framework initialized")
         print(f"   Device: {self.device}")
         print(f"   Results: {config.results_dir}")
         print(f"   Architecture: {config.hidden_dims}")
@@ -215,13 +112,13 @@ class ConsistentDiscreteUncertaintyFramework:
     def reset_storage(self):
         """Reset data storage - CONSISTENT WITH CONTINUOUS."""
         self.training_data = {
-            # Core predictions
+            # core predictions
             "y_true": [],
             "y_pred": [],
             "states": [],
             "actions": [],
             
-            # Uncertainty components
+            # uncertainty components
             "u_epistemic": [],
             "u_aleatoric": [],
             "u_total_method1_linear_addition": [],
@@ -231,17 +128,17 @@ class ConsistentDiscreteUncertaintyFramework:
             "u_total_method5_upper_dcor": [],
             "u_total_method6_upper_nmi": [],
             
-            # Raw outputs for post-processing
+            # raw outputs for post-processing
             "ensemble_predictions": [],
             "quantile_predictions": [],
             
-            # Correlation metrics
+            # correlation metrics
             "correlation_pearson": [],
             "correlation_spearman": [],
             "correlation_distance": [],
             "correlation_nmi": [],
             
-            # Metadata
+            # metadata
             "episode_ids": [],
             "timesteps": [],
             "environment": "",
@@ -251,10 +148,9 @@ class ConsistentDiscreteUncertaintyFramework:
     
     def load_dataset(self, dataset_id: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict]:
         """Load real Minari dataset - CONSISTENT WITH CONTINUOUS LOADING PATTERN."""
-        print(f" Loading discrete dataset: {dataset_id}")
+        print(f"Loading discrete dataset: {dataset_id}")
         
         try:
-            # Load dataset using Minari
             dataset = minari.load_dataset(dataset_id)
             
             observations = []
@@ -265,7 +161,7 @@ class ConsistentDiscreteUncertaintyFramework:
             
             print(f"   Total episodes: {len(dataset)}")
             
-            # Process episodes
+            # process episodes
             for ep_id, episode in enumerate(dataset):
                 if len(observations) >= self.config.max_samples:
                     break
@@ -274,7 +170,7 @@ class ConsistentDiscreteUncertaintyFramework:
                 ep_actions = episode.actions
                 ep_rewards = episode.rewards
                 
-                # Flatten observations if needed (for Atari images)
+                # flatten observations if needed (for Atari images)
                 if len(ep_obs.shape) > 2:
                     ep_obs = ep_obs.reshape(ep_obs.shape[0], -1)
                 
@@ -284,14 +180,14 @@ class ConsistentDiscreteUncertaintyFramework:
                 episode_ids.extend([ep_id] * len(ep_obs))
                 timesteps.extend(list(range(len(ep_obs))))
             
-            # Convert to numpy arrays
+            # convert to numpy arrays
             observations = np.array(observations[:self.config.max_samples])
             actions = np.array(actions[:self.config.max_samples])
             rewards = np.array(rewards[:self.config.max_samples])
             episode_ids = np.array(episode_ids[:self.config.max_samples])
             timesteps = np.array(timesteps[:self.config.max_samples])
             
-            # Normalize observations
+            # normalize observations
             observations = (observations - observations.mean(axis=0)) / (observations.std(axis=0) + 1e-8)
             
             metadata = {
@@ -310,72 +206,73 @@ class ConsistentDiscreteUncertaintyFramework:
             return observations, actions, rewards, metadata
             
         except Exception as e:
-            print(f" Error loading dataset {dataset_id}: {e}")
+            print(f"Error loading dataset {dataset_id}: {e}")
             raise
 
     def train_uncertainty_models(self, observations: np.ndarray, actions: np.ndarray, rewards: np.ndarray, 
-                               metadata: Dict) -> Tuple[DiscreteQRDQN, DiscreteEnsemble]:
-        """Train uncertainty models - CONSISTENT TRAINING PROCEDURE."""
-        print(f" Training uncertainty models...")
+                               metadata: Dict) -> Tuple[DiscreteQRDQN, QRDQNEnsemble]:
+        """Train uncertainty models using the QR-DQN ensemble structure."""
+        print(f"Training uncertainty models...")
         
-        # Create models
+        # create models using factory function
         obs_dim = observations.shape[1]
         num_actions = metadata['num_actions']
         
-        qrdqn = DiscreteQRDQN(
-            input_size=obs_dim,
-            num_actions=num_actions,
-            num_quantiles=self.config.num_quantiles,
-            hidden_dims=self.config.hidden_dims
-        ).to(self.device)
-        
-        ensemble = DiscreteEnsemble(
+        single_qrdqn, qrdqn_ensemble = create_discrete_uncertainty_models(
             input_size=obs_dim,
             num_actions=num_actions,
             ensemble_size=self.config.ensemble_size,
+            num_quantiles=self.config.num_quantiles,
             hidden_dims=self.config.hidden_dims
-        ).to(self.device)
+        )
         
-        # Prepare data
+        # move to device
+        single_qrdqn = single_qrdqn.to(self.device)
+        qrdqn_ensemble = qrdqn_ensemble.to(self.device)
+        
+        # prepare data
         obs_tensor = torch.FloatTensor(observations).to(self.device)
         actions_tensor = torch.LongTensor(actions).to(self.device)
         rewards_tensor = torch.FloatTensor(rewards).to(self.device)
         
-        # Create dataset and dataloader
+        # create dataset and dataloader
         dataset = TensorDataset(obs_tensor, actions_tensor, rewards_tensor)
         dataloader = DataLoader(dataset, batch_size=self.config.batch_size, shuffle=True)
         
-        # Optimizers - CONSISTENT WITH CONTINUOUS
-        qrdqn_optimizer = optim.Adam(qrdqn.parameters(), lr=self.config.learning_rate)
-        ensemble_optimizer = optim.Adam(ensemble.parameters(), lr=self.config.learning_rate)
+        # optimizers - train both single QR-DQN and ensemble
+        single_optimizer = optim.Adam(single_qrdqn.parameters(), lr=self.config.learning_rate)
+        ensemble_optimizer = optim.Adam(qrdqn_ensemble.parameters(), lr=self.config.learning_rate)
         
-        # Training loop - CONSISTENT WITH CONTINUOUS
+        # training loop
         for epoch in range(self.config.num_epochs):
-            qrdqn_losses = []
+            single_losses = []
             ensemble_losses = []
             
             for batch_obs, batch_actions, batch_rewards in dataloader:
-                # Train QRDQN
-                qrdqn_optimizer.zero_grad()
-                quantiles = qrdqn(batch_obs)
+                # train single QR-DQN (for aleatoric uncertainty)
+                single_optimizer.zero_grad()
+                single_quantiles = single_qrdqn(batch_obs)
                 
-                # Quantile regression loss
-                quantile_targets = batch_rewards.unsqueeze(1).unsqueeze(2).expand(-1, num_actions, self.config.num_quantiles)
-                quantile_loss = self.quantile_regression_loss(quantiles, quantile_targets, qrdqn.quantile_fractions)
-                quantile_loss.backward()
-                qrdqn_optimizer.step()
-                qrdqn_losses.append(quantile_loss.item())
+                # quantile regression loss for single QR-DQN
+                single_loss = self.quantile_regression_loss(
+                    single_quantiles, batch_rewards, single_qrdqn.quantile_fractions, batch_actions
+                )
+                single_loss.backward()
+                single_optimizer.step()
+                single_losses.append(single_loss.item())
                 
-                # Train Ensemble
+                # train QR-DQN ensemble (for epistemic uncertainty)
                 ensemble_optimizer.zero_grad()
-                ensemble_outputs = ensemble(batch_obs)
+                ensemble_quantile_outputs = qrdqn_ensemble(batch_obs)  # List of quantile outputs
                 
-                # MSE loss for each ensemble member
+                # compute ensemble loss (average over all ensemble members)
                 ensemble_loss = 0
-                for output in ensemble_outputs:
-                    member_loss = F.mse_loss(output.gather(1, batch_actions.unsqueeze(1)).squeeze(1), batch_rewards)
+                for quantile_output in ensemble_quantile_outputs:
+                    member_loss = self.quantile_regression_loss(
+                        quantile_output, batch_rewards, qrdqn_ensemble.qrdqn_ensemble[0].quantile_fractions, batch_actions
+                    )
                     ensemble_loss += member_loss
-                ensemble_loss /= len(ensemble_outputs)
+                ensemble_loss /= len(ensemble_quantile_outputs)
                 
                 ensemble_loss.backward()
                 ensemble_optimizer.step()
@@ -383,26 +280,39 @@ class ConsistentDiscreteUncertaintyFramework:
             
             if (epoch + 1) % 5 == 0:
                 print(f"   Epoch {epoch+1}/{self.config.num_epochs}: "
-                      f"QRDQN Loss: {np.mean(qrdqn_losses):.4f}, "
+                      f"Single QR-DQN Loss: {np.mean(single_losses):.4f}, "
                       f"Ensemble Loss: {np.mean(ensemble_losses):.4f}")
         
-        return qrdqn, ensemble
+        return single_qrdqn, qrdqn_ensemble
     
     def quantile_regression_loss(self, quantiles: torch.Tensor, targets: torch.Tensor, 
-                               quantile_fractions: torch.Tensor) -> torch.Tensor:
-        """Quantile regression loss - CONSISTENT WITH CONTINUOUS."""
-        diff = targets - quantiles
+                               quantile_fractions: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+        """Quantile regression loss for discrete actions."""
+        batch_size = targets.size(0)
+        num_actions = quantiles.size(1)
+        num_quantiles = quantiles.size(2)
+        
+        # select quantiles for the chosen actions
+        action_quantiles = quantiles.gather(1, actions.unsqueeze(1).unsqueeze(2).expand(-1, 1, num_quantiles))
+        action_quantiles = action_quantiles.squeeze(1)  # [batch_size, num_quantiles]
+        
+        # expand targets for quantiles
+        targets_expanded = targets.unsqueeze(1).expand(-1, num_quantiles)  # [batch_size, num_quantiles]
+        
+        # compute quantile loss
+        diff = targets_expanded - action_quantiles
         loss = torch.mean(torch.max(quantile_fractions * diff, (quantile_fractions - 1) * diff))
+        
         return loss
     
-    def compute_uncertainties(self, qrdqn: DiscreteQRDQN, ensemble: DiscreteEnsemble, 
+    def compute_uncertainties(self, single_qrdqn: DiscreteQRDQN, qrdqn_ensemble: QRDQNEnsemble, 
                             observations: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Compute uncertainties - CONSISTENT WITH CONTINUOUS."""
-        print(f"🔬 Computing uncertainties...")
+        """Compute uncertainties using the new QR-DQN ensemble structure."""
+        print(f"Computing uncertainties...")
         
         obs_tensor = torch.FloatTensor(observations).to(self.device)
         
-        # Compute uncertainties in batches
+        # compute uncertainties in batches
         batch_size = 512
         epistemic_uncertainties = []
         aleatoric_uncertainties = []
@@ -411,12 +321,12 @@ class ConsistentDiscreteUncertaintyFramework:
             end_idx = min(i + batch_size, len(observations))
             batch_obs = obs_tensor[i:end_idx]
             
-            # Epistemic uncertainty
-            epistemic = ensemble.get_epistemic_uncertainty(batch_obs)
+            # epistemic uncertainty from QR-DQN ensemble disagreement
+            epistemic = qrdqn_ensemble.get_epistemic_uncertainty(batch_obs)
             epistemic_uncertainties.append(epistemic.cpu().numpy())
             
-            # Aleatoric uncertainty
-            aleatoric = qrdqn.get_aleatoric_uncertainty(batch_obs)
+            # aleatoric uncertainty from single QR-DQN quantile spread
+            aleatoric = single_qrdqn.get_aleatoric_uncertainty(batch_obs)
             aleatoric_uncertainties.append(aleatoric.cpu().numpy())
         
         epistemic_uncertainties = np.concatenate(epistemic_uncertainties)
@@ -483,15 +393,15 @@ class ConsistentDiscreteUncertaintyFramework:
         
         n = len(x)
         
-        # Compute pairwise distances
+        # compute pairwise distances
         a = np.abs(x[:, np.newaxis] - x[np.newaxis, :])
         b = np.abs(y[:, np.newaxis] - y[np.newaxis, :])
         
-        # Center the distance matrices
+        # center the distance matrices
         A = a - a.mean(axis=0)[np.newaxis, :] - a.mean(axis=1)[:, np.newaxis] + a.mean()
         B = b - b.mean(axis=0)[np.newaxis, :] - b.mean(axis=1)[:, np.newaxis] + b.mean()
         
-        # Compute distance covariance and variances
+        # compute distance covariance and variances
         dcov_xy = np.sqrt(np.mean(A * B))
         dcov_xx = np.sqrt(np.mean(A * A))
         dcov_yy = np.sqrt(np.mean(B * B))
@@ -506,12 +416,12 @@ class ConsistentDiscreteUncertaintyFramework:
         if len(x) < 2:
             return 0.0
         
-        # Discretize continuous values
+        # discretize continuous values
         bins = 10
         x_discrete = pd.cut(x, bins=bins, labels=False, duplicates='drop')
         y_discrete = pd.cut(y, bins=bins, labels=False, duplicates='drop')
         
-        # Handle NaN values
+        # handle NaN values
         valid_mask = ~(pd.isna(x_discrete) | pd.isna(y_discrete))
         if valid_mask.sum() < 2:
             return 0.0
@@ -546,17 +456,17 @@ class ConsistentDiscreteUncertaintyFramework:
             from sklearn.neighbors import KernelDensity
             from sklearn.preprocessing import StandardScaler
             
-            # Standardize the data
+            # standardize the data
             xy_data = np.column_stack([x, y])
             scaler = StandardScaler()
             xy_scaled = scaler.fit_transform(xy_data)
             
-            # Automatic bandwidth selection using Scott's rule
+            # automatic bandwidth selection using Scott's rule
             if bandwidth is None:
                 n, d = xy_scaled.shape
                 bandwidth = n ** (-1. / (d + 4))
             
-            # Fit KDE and estimate entropy
+            # fit KDE and estimate entropy
             kde = KernelDensity(bandwidth=bandwidth, kernel='gaussian')
             kde.fit(xy_scaled)
             
@@ -593,7 +503,7 @@ class ConsistentDiscreteUncertaintyFramework:
         # Distance correlation
         correlations['distance'] = self.distance_correlation(epistemic, aleatoric)
         
-        # Normalized mutual information
+        # NMI
         correlations['nmi'] = self.normalized_mutual_information(epistemic, aleatoric)
         
         print(f"   Pearson: {correlations['pearson']['correlation']:.4f}")
@@ -610,30 +520,30 @@ class ConsistentDiscreteUncertaintyFramework:
                           environment: str, policy_type: str, epoch: int):
         """Store batch results - CONSISTENT WITH CONTINUOUS."""
         
-        # Core predictions
+        # core predictions
         self.training_data["states"].extend(states)
         self.training_data["actions"].extend(actions)
         self.training_data["y_true"].extend(y_true)
         
-        # Uncertainty components
+        # uncertainty components
         self.training_data["u_epistemic"].extend(epistemic)
         self.training_data["u_aleatoric"].extend(aleatoric)
         
-        # All 6 uncertainty combination methods
+        # all 6 uncertainty combination methods
         for method_name, values in methods.items():
             self.training_data[f"u_total_{method_name}"].extend(values)
         
-        # Raw outputs
+        # raw outputs
         self.training_data["ensemble_predictions"].extend(ensemble_preds)
         self.training_data["quantile_predictions"].extend(quantile_preds)
         
-        # Correlation metrics
+        # correlation metrics
         self.training_data["correlation_pearson"].extend([correlations['pearson']['correlation']] * len(states))
         self.training_data["correlation_spearman"].extend([correlations['spearman']['correlation']] * len(states))
         self.training_data["correlation_distance"].extend([correlations['distance']] * len(states))
         self.training_data["correlation_nmi"].extend([correlations['nmi']] * len(states))
         
-        # Metadata
+        # metadata
         self.training_data["episode_ids"].extend(episode_ids)
         self.training_data["timesteps"].extend(timesteps)
         self.training_data["environment"] = environment
@@ -642,11 +552,11 @@ class ConsistentDiscreteUncertaintyFramework:
     
     def save_training_data(self, filename_prefix: str, format: str = "all"):
         """Save training data - CONSISTENT WITH CONTINUOUS."""
-        print(f"💾 Saving training data...")
+        print(f" Saving training data...")
         
         results_dir = Path(self.config.results_dir)
         
-        # Convert lists to numpy arrays
+        # convert lists to numpy arrays
         data_dict = {}
         csv_compatible_data = {}
         
@@ -656,10 +566,10 @@ class ConsistentDiscreteUncertaintyFramework:
             else:
                 data_dict[key] = value
         
-        # Find the reference length (from epistemic uncertainty)
+        # find the reference length (from epistemic uncertainty)
         reference_length = len(data_dict.get('u_epistemic', []))
         
-        # Only include 1D arrays with matching length for CSV
+        # only include 1D arrays with matching length for CSV
         csv_keys = ['u_epistemic', 'u_aleatoric', 'u_total_method1_linear_addition', 'u_total_method2_rss', 
                    'u_total_method3_dcor_entropy', 'u_total_method4_nmi_entropy', 'u_total_method5_upper_dcor', 
                    'u_total_method6_upper_nmi', 'correlation_pearson', 'correlation_spearman', 
@@ -672,13 +582,13 @@ class ConsistentDiscreteUncertaintyFramework:
                 elif len(data_dict[key].shape) == 1:
                     print(f"    Skipping {key} for CSV: length mismatch ({len(data_dict[key])} vs {reference_length})")
         
-        # Add scalar metadata
+        # add scalar metadata
         for key, value in data_dict.items():
             if isinstance(value, (str, int, float)):
                 csv_compatible_data[f'meta_{key}'] = [value] * reference_length
         
         if format in ["all", "csv"]:
-            # Save CSV with only compatible data
+            # save CSV with only compatible data
             try:
                 if csv_compatible_data:
                     df = pd.DataFrame(csv_compatible_data)
@@ -720,11 +630,11 @@ class ConsistentDiscreteUncertaintyFramework:
         
         results_dir = Path(self.config.results_dir)
         
-        # Set up plotting style
+        # set up plotting style
         plt.style.use('default')
         sns.set_palette("husl")
         
-        #  Uncertainty scatter plot
+        #  uncertainty scatter plot
         fig, axes = plt.subplots(2, 2, figsize=(15, 12))
         
         # Epistemic vs Aleatoric
@@ -733,7 +643,7 @@ class ConsistentDiscreteUncertaintyFramework:
         axes[0, 0].set_ylabel('Aleatoric Uncertainty')
         axes[0, 0].set_title(f'Uncertainty Components\nPearson r={correlations["pearson"]["correlation"]:.3f}')
         
-        # Method comparison
+        # method comparison
         method_names = ['method1_linear_addition', 'method2_rss', 'method5_upper_dcor', 'method6_upper_nmi']
         method_labels = ['Linear Addition', 'RSS', 'Upper Bound (dCor)', 'Upper Bound (NMI)']
         
@@ -756,7 +666,7 @@ class ConsistentDiscreteUncertaintyFramework:
         plt.savefig(results_dir / f"{experiment_id}_uncertainty_analysis.png", dpi=300, bbox_inches='tight')
         plt.close()
         
-        #  Correlation summary
+        #  correlation summary
         fig, ax = plt.subplots(1, 1, figsize=(10, 6))
         
         correlation_values = [
@@ -772,7 +682,7 @@ class ConsistentDiscreteUncertaintyFramework:
         ax.set_title(f'Uncertainty Correlation Analysis - {experiment_id}')
         ax.axhline(y=0, color='black', linestyle='-', alpha=0.3)
         
-        # Add value labels on bars
+        # add value labels on bars
         for bar, value in zip(bars, correlation_values):
             height = bar.get_height()
             ax.text(bar.get_x() + bar.get_width()/2., height + 0.01,
@@ -786,40 +696,40 @@ class ConsistentDiscreteUncertaintyFramework:
     
     def run_single_experiment(self, dataset_id: str) -> Dict[str, Any]:
         """Run single experiment - CONSISTENT WITH CONTINUOUS."""
-        print(f"\n🚀 Starting experiment: {dataset_id}")
+        print(f"\nStarting experiment: {dataset_id}")
         
         try:
-            # Reset storage for new experiment
+            # reset storage for new experiment
             self.reset_storage()
             
-            # Load dataset
-            observations, actions, rewards, metadata = self.load_real_dataset(dataset_id)
+            # load dataset
+            observations, actions, rewards, metadata = self.load_dataset(dataset_id)
             
-            # Train models
-            qrdqn, ensemble = self.train_uncertainty_models(observations, actions, rewards, metadata)
+            # train models
+            single_qrdqn, qrdqn_ensemble = self.train_uncertainty_models(observations, actions, rewards, metadata)
             
-            # Compute uncertainties
-            epistemic, aleatoric = self.compute_uncertainties(qrdqn, ensemble, observations)
+            # compute uncertainties
+            epistemic, aleatoric = self.compute_uncertainties(single_qrdqn, qrdqn_ensemble, observations)
             
-            # Compute uncertainty combinations
+            # compute uncertainty combinations
             methods = self.compute_uncertainty_combinations(epistemic, aleatoric)
             
-            # Analyze correlations
+            # analyze correlations
             correlations = self.analyze_correlations(epistemic, aleatoric)
             
-            # Create experiment ID
+            # create experiment ID
             experiment_id = dataset_id.replace('/', '_').replace('-', '_')
             
-            # Get ensemble predictions for storage
+            # get ensemble predictions for storage
             with torch.no_grad():
                 obs_tensor = torch.FloatTensor(observations).to(self.device)
-                ensemble_outputs = ensemble(obs_tensor)
+                ensemble_outputs = qrdqn_ensemble(obs_tensor)
                 ensemble_preds = [output.cpu().numpy() for output in ensemble_outputs]
                 
-                quantile_outputs = qrdqn(obs_tensor)
+                quantile_outputs = single_qrdqn(obs_tensor)
                 quantile_preds = quantile_outputs.cpu().numpy()
             
-            # Store results
+            # store results
             self.store_batch_results(
                 states=observations,
                 actions=actions,
@@ -837,13 +747,13 @@ class ConsistentDiscreteUncertaintyFramework:
                 epoch=self.config.num_epochs
             )
             
-            # Save data in essential formats only (avoid disk quota issues)
+            # save data in essential formats only (avoid disk quota issues)
             self.save_training_data(f"discrete_{experiment_id}", format="csv")
             
-            # Create visualizations
+            # create visualizations
             self.create_visualizations(epistemic, aleatoric, methods, correlations, experiment_id)
             
-            # Prepare results summary
+            # prepare results summary
             results = {
                 'dataset_id': dataset_id,
                 'num_samples': len(observations),
@@ -862,11 +772,11 @@ class ConsistentDiscreteUncertaintyFramework:
                 }
             }
             
-            print(f" Experiment completed successfully: {dataset_id}")
+            print(f"Experiment completed successfully: {dataset_id}")
             return results
             
         except Exception as e:
-            print(f" Experiment failed: {dataset_id}")
+            print(f"Experiment failed: {dataset_id}")
             print(f"   Error: {str(e)}")
             traceback.print_exc()
             return {'dataset_id': dataset_id, 'error': str(e)}
@@ -901,13 +811,13 @@ def get_all_datasets():
 
 def main():
     """Main execution function."""
-    print(" Consistent Discrete Uncertainty Correlation Study")
+    print("Consistent Discrete Uncertainty Correlation Study")
     print("=" * 60)
     
-    # Parse arguments
+    # parse arguments
     args = parse_arguments()
     
-    # Create configuration
+    # create configuration
     config = ConsistentDiscreteConfig(
         results_dir=args.results_dir,
         num_epochs=args.epochs,
@@ -916,19 +826,17 @@ def main():
         max_samples=args.max_samples
     )
     
-    # Initialize framework
+    # initialize framework
     framework = ConsistentDiscreteUncertaintyFramework(config)
     
-    # Run experiment
+ 
     results = framework.run_single_experiment(args.dataset)
-    
-    # Save final results
     results_file = Path(config.results_dir) / "experiment_results.json"
     with open(results_file, 'w') as f:
         json.dump(results, f, indent=2, default=str)
     
-    print(f"\n Results saved to: {results_file}")
-    print(" Experiment completed!")
+    print(f"\nResults saved to: {results_file}")
+    print("Experiment completed!")
 
 if __name__ == "__main__":
     main() 

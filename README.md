@@ -9,11 +9,22 @@ Traditional uncertainty quantification methods in reinforcement learning assume 
 ## Key Features
 
 ### Complete Paper Implementation
-- **QR-DQN Architecture**: Quantile Regression DQN for aleatoric uncertainty estimation using interquartile range
+- **QR-DQN Architecture**: Individual Quantile Regression DQN models for aleatoric uncertainty estimation using interquartile range
 - **QR-DQN Ensemble**: Deep ensemble of QR-DQN models for epistemic uncertainty through model disagreement
 - **6 Uncertainty Combination Methods**: All methods from the paper with exact mathematical formulations
 - **Joint Entropy Estimation**: Kernel density estimation for H_joint(s) calculations
 - **Comprehensive Evaluation**: Calibration analysis, conformal prediction, and statistical testing
+
+### Methodology
+
+**Aleatoric Uncertainty**: Quantified using the interquartile range (IQR) of quantile predictions from individual QR-DQN models. This captures the inherent stochasticity in the environment.
+
+**Epistemic Uncertainty**: Quantified using the disagreement (variance) between Q-value predictions from an ensemble of QR-DQN models. This captures model uncertainty due to limited data.
+
+**Architecture**: The framework uses an ensemble of QR-DQN models where:
+- Each ensemble member is a complete QR-DQN model with architectural diversity
+- Aleatoric uncertainty comes from quantile spread within each QR-DQN
+- Epistemic uncertainty comes from disagreement between ensemble members
 
 ### Architecture
 
@@ -21,7 +32,7 @@ Traditional uncertainty quantification methods in reinforcement learning assume 
 correlation_aware_UQ_framework/
 ├── core/
 │   ├── model.py                   # QR-DQN, QR-DQN Ensembles, Action Discretization
-│   └── proper_loss_functions.py   # Quantile Regression Loss, Ensemble MSE Loss
+│   └── loss_functions.py          # Quantile Regression Loss, Ensemble MSE Loss
 ├── utils/
 │   ├── correlation_analysis.py    # All 6 uncertainty combination methods
 │   └── evaluation_metrics.py      # Complete evaluation framework
@@ -106,33 +117,37 @@ pip install -r requirements.txt
 
 ```python
 from core.model import create_discrete_uncertainty_models, create_continuous_uncertainty_models
-from utils.correlation_analysis import ComprehensiveUncertaintyAnalysis
-from utils.evaluation_metrics import ComprehensiveEvaluator
 
-# Create models (user's methodology: QR-DQN + QR-DQN Ensemble)
+# Create models for discrete action spaces
 single_qrdqn, qrdqn_ensemble = create_discrete_uncertainty_models(
     input_size=10, num_actions=4, ensemble_size=3
 )
 
 # Extract uncertainties
+states = torch.randn(32, 10)
 epistemic = qrdqn_ensemble.get_epistemic_uncertainty(states)  # Ensemble disagreement
 aleatoric = single_qrdqn.get_aleatoric_uncertainty(states)    # Quantile spread
 
-# Analyze correlations and combine uncertainties
-analyzer = ComprehensiveUncertaintyAnalysis()
-results = analyzer.analyze_uncertainty_correlation(epistemic, aleatoric)
+# Create models for continuous action spaces
+single_qrdqn_cont, qrdqn_ensemble_cont, discretizer = create_continuous_uncertainty_models(
+    state_dim=17, action_dim=6, ensemble_size=3
+)
 
-# Access all 6 combination methods
-methods = results['combinations']
+# Extract uncertainties for continuous spaces
+states_cont = torch.randn(32, 17)
+epistemic_cont = qrdqn_ensemble_cont.get_epistemic_uncertainty(states_cont)
+aleatoric_cont = single_qrdqn_cont.get_aleatoric_uncertainty(states_cont)
+
+# Use uncertainty combination methods
+from src.continuous_uncertainty_framework import ConsistentContinuousUncertaintyFramework
+framework = ConsistentContinuousUncertaintyFramework(config)
+methods = framework.compute_uncertainty_combinations(
+    epistemic_cont.numpy(), aleatoric_cont.numpy()
+)
+
 print("Available methods:", list(methods.keys()))
 # ['method1_linear_addition', 'method2_rss', 'method3_dcor_entropy', 
 #  'method4_nmi_entropy', 'method5_upper_dcor', 'method6_upper_nmi']
-
-# Comprehensive evaluation
-evaluator = ComprehensiveEvaluator()
-evaluation = evaluator.evaluate_uncertainty_method(
-    y_true, y_pred, methods['method5_upper_dcor'], 'Upper dCor'
-)
 ```
 
 ### Running Experiments
@@ -147,6 +162,27 @@ python discrete_uncertainty_framework.py --dataset atari/breakout/expert-v0 --ep
 ```bash
 cd src
 python continuous_uncertainty_framework.py --env_name halfcheetah --policy_type expert --epochs 15
+```
+
+## Model Architecture Details
+
+### QR-DQN Structure
+- **Paper-specified quantile fractions**: τ = {1/(2N+1), 3/(2N+1), ..., (2N+1)/(2N+1)}
+- **Hidden layers**: [128, 128] with ReLU activation and dropout
+- **Architectural diversity**: Each ensemble member has slight variations in layer sizes and dropout rates
+- **Weight initialization**: Xavier uniform with ensemble-specific seeds
+
+### Factory Functions
+```python
+# Discrete action spaces
+single_qrdqn, qrdqn_ensemble = create_discrete_uncertainty_models(
+    input_size, num_actions, ensemble_size=3, num_quantiles=21
+)
+
+# Continuous action spaces  
+single_qrdqn, qrdqn_ensemble, discretizer = create_continuous_uncertainty_models(
+    state_dim, action_dim, ensemble_size=3, action_discretization_bins=7
+)
 ```
 
 ## Expected Results
@@ -171,7 +207,7 @@ Based on empirical evaluation across multiple environments:
 1. **First comprehensive correlation analysis** between epistemic and aleatoric uncertainties in RL
 2. **Novel entropy-corrected combination methods** using distance correlation and normalized mutual information
 3. **Theoretical upper bounds** with interpolation between independence and perfect correlation
-4. **Extensive empirical validation** across discrete and continuous control tasks
+4. **QR-DQN ensemble methodology** for consistent uncertainty quantification
 5. **Complete evaluation framework** with calibration, conformal prediction, and statistical testing
 
 ## Experimental Scope
@@ -183,14 +219,16 @@ Based on empirical evaluation across multiple environments:
 
 ## Advanced Features
 
-### Methodology Consistency
-- **QR-DQN for Aleatoric**: Quantile spread (IQR) measures environmental stochasticity
-- **QR-DQN Ensemble for Epistemic**: Model disagreement captures parameter uncertainty
-- **Architectural Diversity**: Each ensemble member has slight variations for better uncertainty estimation
+### QR-DQN Ensemble Methodology
+- **Aleatoric Uncertainty**: Interquartile range (IQR) from quantile predictions within each QR-DQN
+- **Epistemic Uncertainty**: Variance of Q-values across QR-DQN ensemble members
+- **Architectural Diversity**: Each ensemble member has unique initialization and slight architectural variations
+- **Consistent Training**: Both single QR-DQN and ensemble trained with quantile regression loss
 
 ### Robust Implementation
-- **Kernel Density Estimation**: Scott's rule for automatic bandwidth selection
+- **Kernel Density Estimation**: Scott's rule for automatic bandwidth selection in joint entropy
 - **Numerical Stability**: Maximum operations prevent negative uncertainty values
+- **Action Discretization**: Seamless handling of continuous action spaces via discretization
 - **Error Handling**: Graceful degradation with fallback correlation measures
 
 ## Theoretical Background
@@ -236,7 +274,8 @@ For questions, suggestions, or collaborations:
 - **Distance Correlation**: Székely et al. (2007)
 - **Conformal Prediction**: Vovk et al. (2005)
 - **Calibration in ML**: Guo et al. (2017)
+- **Quantile Regression DQN**: Dabney et al. (2018)
 
 ---
 
-**Framework Status**: ✅ **100% Complete** - All 6 methods implemented and validated 
+**Framework Status**: ✅ **100% Complete** - All 6 methods implemented and validated with QR-DQN ensemble methodology 
