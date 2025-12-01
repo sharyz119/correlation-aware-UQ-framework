@@ -67,7 +67,7 @@ U_upper_NMI = (1-ρ_NMI)√(U_e² + U_a²) + ρ_NMI·max(U_e, U_a)
 
 
 ## Contributing
-
+To ensure higher quality output, this work is still being published in revise, and the code will be kept up-to-date.
 
 
 ## Citation
