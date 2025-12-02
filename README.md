@@ -64,10 +64,97 @@ U_upper_dCor = (1-ρ_dCor)√(U_e² + U_a²) + ρ_dCor·max(U_e, U_a)
 U_upper_NMI = (1-ρ_NMI)√(U_e² + U_a²) + ρ_NMI·max(U_e, U_a)
 ```
 
+## Installation
 
+### Prerequisites
 
-## Contributing
-To ensure higher quality output, this work is still being published in revise, and the code will be kept up-to-date.
+- Python 3.8 or higher
+- PyTorch 1.9.0 or higher
+- CUDA (optional, for GPU acceleration)
+
+### Optional: Install Minari for Dataset Support
+
+```bash
+pip install minari
+```
+
+## Quick Start
+
+### Basic Usage: Discrete Action Spaces
+
+```python
+from src.discrete_uncertainty_framework import ConsistentDiscreteUncertaintyFramework, ConsistentDiscreteConfig
+from pathlib import Path
+
+# Create configuration
+config = ConsistentDiscreteConfig(
+    num_epochs=15,
+    batch_size=128,
+    ensemble_size=3,
+    num_quantiles=21,
+    max_samples=10000,
+    results_dir="./results/discrete"
+)
+
+# Initialize framework
+framework = ConsistentDiscreteUncertaintyFramework(config)
+
+# Run experiment on a dataset
+results = framework.run_single_experiment("atari/breakout/expert-v0")
+```
+
+### Basic Usage: Continuous Action Spaces
+
+```python
+from src.continuous_uncertainty_framework import ConsistentContinuousUncertaintyFramework, ConsistentContinuousConfig
+
+# Create configuration
+config = ConsistentContinuousConfig(
+    num_epochs=15,
+    batch_size=128,
+    ensemble_size=3,
+    num_quantiles=21,
+    max_samples=10000,
+    results_dir="./results/continuous"
+)
+
+# Initialize framework
+framework = ConsistentContinuousUncertaintyFramework(config)
+
+# Run experiment
+results = framework.run_single_experiment("halfcheetah", "expert")
+```
+
+## Evaluation Metrics
+
+The framework provides comprehensive evaluation metrics:
+
+### Calibration Metrics
+- **Expected Calibration Error (ECE)**: Measures how well-calibrated uncertainty estimates are
+- **Maximum Calibration Error (MCE)**: Worst-case calibration error
+- **Brier Score**: Overall prediction quality metric
+
+### Conformal Prediction
+- **Coverage Rate**: Empirical coverage of prediction intervals
+- **Interval Width**: Average width of prediction intervals
+- **Efficiency**: Coverage per unit interval width
+
+### Statistical Testing
+- **Binomial Coverage Tests**: Test if coverage matches target
+- **Bonferroni Correction**: Multiple comparison correction
+- **Bootstrap Confidence Intervals**: Uncertainty in metrics
+
+### Usage
+
+```python
+from utils.evaluation_metrics import ComprehensiveEvaluator
+
+evaluator = ComprehensiveEvaluator(n_bins=10, alpha=0.05)
+results = evaluator.evaluate_uncertainty_method(
+    y_true, y_pred, uncertainty, method_name="upper_dcor"
+)
+```
+
 
 
 ## Citation
@@ -80,9 +167,15 @@ If you use this framework in your research, please cite:
 
 ## Contact
 
+For questions, issues, or collaborations, please open an issue on GitHub.
 
 
 ## Related Work
 
+- [D4RL](https://github.com/rail-berkeley/d4rl): Datasets for Deep Data-Driven Reinforcement Learning
+- [Minari](https://github.com/Farama-Foundation/Minari): Standardized offline RL dataset interface
+- [QR-DQN](https://arxiv.org/abs/1710.10044): Quantile Regression for Distributional Reinforcement Learning
+- 
 
+**Note**: This work is currently under review. The code will be kept up-to-date with the final publication.
 
